@@ -30,18 +30,9 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
           df -h /
 
-      - name: Ajouter de la memoire d'echange
-        # Les machines GitHub des depots prives ont moins de memoire que celles de Cal.diy :
-        # la construction Next.js (6 Go pour Node) y echouait en "cannot allocate memory".
+      - name: Relever disque et memoire
         run: |
           echo "Processeurs : $(nproc)"
-          free -h
-          CIBLE=/mnt/swapfile-cal
-          [ -d /mnt ] && [ -w /mnt ] || CIBLE=/swapfile-cal
-          sudo fallocate -l 20G "$CIBLE"
-          sudo chmod 600 "$CIBLE"
-          sudo mkswap "$CIBLE"
-          sudo swapon "$CIBLE"
           free -h
           df -h / /mnt || true
 
