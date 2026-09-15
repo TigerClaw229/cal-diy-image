@@ -36,6 +36,13 @@ jobs:
           repository: calcom/cal.diy
           ref: ${{ inputs.version }}
 
+      - name: Figer turbo sur la version du projet
+        # Le Dockerfile appelle npx turbo sans version : npx prend la derniere (2.10.x),
+        # qui refuse --scope repete. Le projet fixe turbo 2.7.1 dans package.json.
+        run: |
+          sed -i 's#npx turbo prune#npx turbo@2.7.1 prune#' Dockerfile
+          grep -n 'turbo' Dockerfile
+
       - name: Demarrer la base de travail
         run: |
           grep -o '^[^#]*' .env.example > .env
