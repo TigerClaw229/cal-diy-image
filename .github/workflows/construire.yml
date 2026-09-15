@@ -1,0 +1,89 @@
+name: Construire l'image Cal.diy
+
+# Construit l'image Docker de Cal.diy (calcom/cal.diy, licence MIT) avec la recette officielle
+# du depot, puis la rend disponible en artefact prive pour le VPS. Rien n'est publie.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Etiquette de calcom/cal.diy a construire"
+        required: true
+        default: "v6.2.0"
+
+permissions:
+  contents: read
+
+env:
+  POSTGRES_USER: unicorn_user
+  POSTGRES_PASSWORD: magical_password
+  POSTGRES_DB: calendso
+  DATABASE_HOST: localhost:5432
+
+jobs:
+  construire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Liberer de la place sur la machine GitHub
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Recuperer Cal.diy
+        uses: actions/checkout@v4
+        with:
+          repository: calcom/cal.diy
+          ref: ${{ inputs.version }}
+
+      - name: Demarrer la base de travail
+        run: |
+          grep -o '^[^#]*' .env.example > .env
+          docker compose up -d database
+          sleep 20
+          docker compose ps database
+
+      - name: Preparer Buildx sur le reseau de la base
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            network=container:database
+          buildkitd-flags: |
+            --allow-insecure-entitlement security.insecure --allow-insecure-entitlement network.host
+
+      - name: Construire l'image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./
+          file: ./Dockerfile
+          load: true
+          push: false
+          platforms: linux/amd64
+          tags: cal-diy:${{ inputs.version }}
+          build-args: |
+            NEXT_PUBLIC_WEBAPP_URL=http://localhost:3000
+            NEXT_PUBLIC_API_V2_URL=http://localhost:5555/api/v2
+            NEXT_PUBLIC_LICENSE_CONSENT=agree
+            CALCOM_TELEMETRY_DISABLED=1
+            DATABASE_URL=postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@${{ env.DATABASE_HOST }}/${{ env.POSTGRES_DB }}
+            DATABASE_DIRECT_URL=postgresql://${{ env.POSTGRES_USER }}:${{ env.POSTGRES_PASSWORD }}@${{ env.DATABASE_HOST }}/${{ env.POSTGRES_DB }}
+
+      - name: Exporter l'image
+        run: |
+          docker save cal-diy:${{ inputs.version }} | gzip -1 > cal-diy-${{ inputs.version }}.tar.gz
+          sha256sum cal-diy-${{ inputs.version }}.tar.gz | tee cal-diy-${{ inputs.version }}.tar.gz.sha256
+          ls -lh cal-diy-${{ inputs.version }}.tar.gz
+
+      - name: Deposer l'artefact prive
+        uses: actions/upload-artifact@v4
+        with:
+          name: cal-diy-${{ inputs.version }}
+          path: |
+            cal-diy-${{ inputs.version }}.tar.gz
+            cal-diy-${{ inputs.version }}.tar.gz.sha256
+          retention-days: 5
+          compression-level: 0
+
+      - name: Arreter la base de travail
+        if: always()
+        run: docker compose down
